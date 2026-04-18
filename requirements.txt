@@ -1,8 +1,0 @@
-numpy
-pandas
-opencv-python
-matplotlib
-scipy
-mediapipe
-streamlit
-plotly
