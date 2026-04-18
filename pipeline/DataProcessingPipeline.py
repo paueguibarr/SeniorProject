@@ -8,9 +8,8 @@ import subprocess
 # external .py imports
 from pipeline.StrideRangeAnalysis import compute_stride_features
 
-# -----------------------------------
 # Constants
-# -----------------------------------
+# -------------------------------------------------------------------------------------------------------
 FPS_DEFAULT = 30.0
 MIN_VIS = 0.3
 EPS = 1e-6
@@ -211,20 +210,22 @@ def normalize_pose_dataframe(
     """
     df = df.copy()
 
-    # pelvis center
+    # pelvis center midpoint between left and right hip BCOM
     df["pelvis_x"] = (df["LEFT_HIP_x"] + df["RIGHT_HIP_x"]) / 2
     df["pelvis_y"] = (df["LEFT_HIP_y"] + df["RIGHT_HIP_y"]) / 2
 
-    # shoulder midpoint
+    # shoulder midpoint midpoint bw left and right shoulder for torso direction and length
     df["shoulder_mid_x"] = (df["LEFT_SHOULDER_x"] + df["RIGHT_SHOULDER_x"]) / 2
     df["shoulder_mid_y"] = (df["LEFT_SHOULDER_y"] + df["RIGHT_SHOULDER_y"]) / 2
 
-    # torso length
+    # torso length eucledian distance between pelvis center and shoulder midpoint to give torso length per frame 
+    # used as scaling factor to normalize body size differences
     df["torso_len"] = np.sqrt(
         (df["shoulder_mid_x"] - df["pelvis_x"]) ** 2 +
         (df["shoulder_mid_y"] - df["pelvis_y"]) ** 2
     )
 
+    # ensure visible hip and shoulders
     valid_core = (
         (df["LEFT_HIP_vis"] >= hip_thresh) &
         (df["RIGHT_HIP_vis"] >= hip_thresh) &
@@ -235,17 +236,19 @@ def normalize_pose_dataframe(
     # invalidate unreliable torso/pelvis estimates
     df.loc[~valid_core, ["pelvis_x", "pelvis_y", "torso_len"]] = np.nan
 
-    median_len = df["torso_len"].median()
+    median_len = df["torso_len"].median() 
+    # if torso length too small (less than 40% of median) invalidate
     if pd.notna(median_len):
         df.loc[df["torso_len"] < 0.4 * median_len, "torso_len"] = np.nan
 
-    # interpolate short gaps
+    # interpolate short gaps (missing vals) up to 10 consecutive frames 
     df[["pelvis_x", "pelvis_y", "torso_len"]] = df[
         ["pelvis_x", "pelvis_y", "torso_len"]
     ].interpolate(limit=interp_limit, limit_direction="both")
 
     # normalized coordinates
     for j in JOINTS:
+        # subtract pelvis and divide by torso length 
         df[f"{j}_xN_torso"] = (df[f"{j}_x"] - df["pelvis_x"]) / (df["torso_len"] + eps)
         df[f"{j}_yN_torso"] = (df[f"{j}_y"] - df["pelvis_y"]) / (df["torso_len"] + eps)
 
@@ -282,6 +285,7 @@ def detect_dominant_side(df: pd.DataFrame, min_vis: float = MIN_VIS) -> str:
         (df[col] >= min_vis).mean() for col in right_cols if col in df.columns
     ])
 
+    # return the most visible 
     return "LEFT" if left_score >= right_score else "RIGHT"
     
 def detect_strides_from_pose(
@@ -307,39 +311,43 @@ def detect_strides_from_pose(
     if heel_col not in df.columns:
         raise ValueError(f"Column '{heel_col}' not found in dataframe.")
 
-    y = df[heel_col].astype(float)
+    y = df[heel_col].astype(float) # time series, heel vertical position over time 
 
-    valid_y = y.dropna()
-    if valid_y.empty:
+    valid_y = y.dropna() 
+    if valid_y.empty: # return empty resutls  if empty 
         return np.array([], dtype=int), pd.DataFrame(
             columns=["stride_id", "start_frame", "end_frame"]
         )
 
+    # convert time to frames ex 0.6 sec × 30 fps = 18 frames
     min_distance_frames = max(1, int(min_stride_time * fps))
+    # how strong a peak must be. std - variability scaled by prominence
     prominence = np.std(valid_y) * prominence_scale
 
     peaks, _ = find_peaks(
-        y.ffill().bfill(),
-        distance=min_distance_frames,
-        prominence=prominence,
-        width=peak_width,
+        y.ffill().bfill(), # fill missing vals forward and backward 
+        distance=min_distance_frames, # min gap between peaks 
+        prominence=prominence, # min peak strength 
+        width=peak_width, # min peak width 
     )
 
-    peaks = peaks + peak_shift
-    peaks = peaks[peaks >= 0]
-    peaks = np.unique(peaks)
+    peaks = peaks + peak_shift # adjust peak position to align w/ heel strike 
+    peaks = peaks[peaks >= 0] # remove negative indices 
+    peaks = np.unique(peaks) # reomve dups 
 
     stride_ranges = []
+    # loop through peaks 
     for i in range(len(peaks) - 1):
+        # each stride between two peaks 
         start = int(peaks[i])
         end = int(peaks[i + 1])
-        if end > start:
+        if end > start: # only keep valid intervals 
             stride_ranges.append((start, end))
 
-    if drop_first_stride and len(stride_ranges) > 1:
+    if drop_first_stride and len(stride_ranges) > 1: # drop first stride 
         stride_ranges = stride_ranges[1:]
 
-    strides_df = pd.DataFrame(stride_ranges, columns=["start_frame", "end_frame"])
+    strides_df = pd.DataFrame(stride_ranges, columns=["start_frame", "end_frame"]) # create df 
     
     if strides_df.empty:
         return peaks, pd.DataFrame(columns=["stride_id", "start_frame", "end_frame", "duration"])
@@ -347,7 +355,7 @@ def detect_strides_from_pose(
     # duration in seconds
     strides_df["duration"] = (strides_df["end_frame"] - strides_df["start_frame"]) / fps
 
-    # keep only realistic strides
+    # keep only realistic strides between 0.5 and 1.2 
     strides_df = strides_df[
         (strides_df["duration"] >= min_time) &
         (strides_df["duration"] <= max_time)
@@ -358,27 +366,30 @@ def detect_strides_from_pose(
 
     return peaks, strides_df
 
-# -----------------------------------
 # 4. Wrapper pipeline
-# -----------------------------------
+# ----------------------------------------------------------------------------------------------------------------------------
 
 def process_video_pipeline(video_path, view_name, overlay_video_path=None, fps: float = FPS_DEFAULT):
-    
+
+    """
+    end to end pipeline take video, generate pose, normalize, choose side,
+    get strides and features 
+    """
     pose_df, overlay_path, actual_fps = extract_pose_dataframe_and_overlay_from_video(
         video_path,
         output_video_path=overlay_video_path
-    )
+    ) # get pose df video with marks and actual fps
 
-    norm_df = normalize_pose_dataframe(pose_df)
-    dominant_side = detect_dominant_side(norm_df)
+    norm_df = normalize_pose_dataframe(pose_df) # normalize 
+    dominant_side = detect_dominant_side(norm_df) # get dominant side left or right
 
     # use that side's heel for stride detection
-    heel_col = f"{dominant_side}_HEEL_y"
+    heel_col = f"{dominant_side}_HEEL_y" # use dominant side 
     peaks, strides_df = detect_strides_from_pose(
         norm_df,
         fps=actual_fps,
         heel_col=heel_col
-    )
+    ) # get peaks and stride ranges 
 
     # use that same side for feature extraction
     features_df = compute_stride_features(
