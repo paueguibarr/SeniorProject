@@ -19,3 +19,6 @@ venv/
 
 # Outputs
 reports/figures/
+
+# Cache 
+cache_videos/
