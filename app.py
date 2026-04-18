@@ -278,14 +278,8 @@ def download_parquet_from_storage(bucket: str, path: str) -> pd.DataFrame:
     buffer = io.BytesIO(file_bytes) # pretend file made from raw data 
     return pd.read_parquet(buffer) # read parquet data from buffer and convert to df 
 
-def download_video_from_storage(bucket: str, path: str) -> bytes:
-    """
-    Download video from storage
-    bucket: storage bucket name
-    path: path of file in the bucket 
-    returns: raw bytes
-    """
-    return supabase.storage.from_(bucket).download(path) # download from db
+def get_video_url(supabase, bucket, path):
+    return supabase.storage.from_(bucket).get_public_url(path)
 
 def rename_run(run_id: str, user_id: str, new_title: str):
     """
@@ -2557,11 +2551,11 @@ with detail_tab:
         )
 
         # download overlay from storage 
-        saved_video_bytes = download_video_from_storage(
+        video_url = get_video_url(
+            supabase,
             RUN_FILES_BUCKET,
             selected_row["overlay_video_path"]
         )
-
         # rebuild saved run summary 
         saved_run_summary = {
             "Overstride": float(selected_row.get("overstride_prob", 0) or 0),
@@ -2592,7 +2586,7 @@ with detail_tab:
 
         with video_col:
             st.markdown("#### Pose Overlay Video")
-            st.video(saved_video_bytes) # show video 
+            st.video(video_url) # show video 
 
         with side_col:
             render_prediction_panel(saved_run_summary, title="Saved Predictions") # show perds
