@@ -1,3 +1,0 @@
-"""
-Gait metric computation placeholder.
-"""
