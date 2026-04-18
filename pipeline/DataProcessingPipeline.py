@@ -108,7 +108,7 @@ def extract_pose_dataframe_and_overlay_from_video(
     # create pose detector 
     pose = mp_pose.Pose(
         static_image_mode=False, # better for video 
-        model_complexity=2, # heavier pose model
+        model_complexity=1, # heavier pose model
         enable_segmentation=False,
         min_detection_confidence=0.5,
         min_tracking_confidence=0.5
