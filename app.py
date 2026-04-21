@@ -1506,7 +1506,7 @@ def render_side_detail_section(
             
             # compute average metric per segment
             segment_summary = (
-                segment_df.groupby("segment", as_index=False)[selected_metric]
+                segment_df.groupby("segment", as_index=False, observed=False)[selected_metric]
                 .mean()
             )
             
