@@ -201,7 +201,7 @@ def compute_bounce_features(stride_df):
     }
 
 
-def trunk_angle_to_vertical(pelvis, shoulder
+def trunk_angle_to_vertical(pelvis, shoulder):
     """
     computes the angle between the trunk and vertical
     """
