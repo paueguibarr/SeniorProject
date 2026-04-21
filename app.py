@@ -8,6 +8,7 @@ from streamlit_local_storage import LocalStorage
 import base64
 import tempfile
 import os
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
 import cv2
 import mediapipe as mp
 import subprocess
