@@ -150,6 +150,14 @@ def save_run_to_supabase(
     n_frames: no. of frames
     Upload artifacts to Storage, then insert rows into runs + predictions.
     """
+
+    is_valid_side_features, feature_error = validate_side_features(features_df)
+    if not is_valid_side_features:
+        raise ValueError(f"Cannot save run: {feature_error}")
+
+    if run_summary is None or not isinstance(run_summary, dict):
+        raise ValueError("Cannot save run: missing model predictions.")
+        
     run_id = str(uuid.uuid4()) # generate a unique identifier (PK)
     # generate path for overlay and stride features
     paths = make_run_paths(user_id, run_id) 
@@ -871,6 +879,48 @@ METRIC_TOOLTIPS = {
     "contact_frame": "Frame index corresponding to foot strike."
 }
 
+EXPECTED_SIDE_FEATURE_COLS = [
+    "stride_id",
+    "contact_frame",
+    "knee_angle_at_contact",
+    "braking_angle",
+    "shank_angle_at_contact",
+    "foot_strike_ratio",
+    "knee_flexion_change_early_stance",
+    "hip_vertical_range",
+    "vertical_velocity_peak",
+    "mean_trunk_angle",
+    "max_trunk_angle",
+    "stride_time",
+    "cadence",
+]
+
+MIN_REQUIRED_STRIDES = 3
+
+def validate_side_features(features_df: pd.DataFrame):
+    if features_df is None:
+        return False, "Feature dataframe is None."
+
+    if not isinstance(features_df, pd.DataFrame):
+        return False, "Feature output is not a dataframe."
+
+    if features_df.empty:
+        return False, "Feature dataframe is empty. No valid strides detected."
+
+    missing_cols = [col for col in EXPECTED_SIDE_FEATURE_COLS if col not in features_df.columns]
+    if missing_cols:
+        return False, f"Missing required columns: {missing_cols}"
+
+    if "stride_id" not in features_df.columns:
+        return False, "Missing stride_id."
+
+    n_valid_strides = features_df["stride_id"].nunique()
+    if n_valid_strides < MIN_REQUIRED_STRIDES:
+        return False, f"Only {n_valid_strides} valid stride(s) detected."
+
+    return True, None
+    
+
 def get_file_hash(file_bytes):
     """
     Take raw bytes of a file and create a finger print 
@@ -900,6 +950,10 @@ def render_prediction_panel(predictions, title="Model Predictions"):
     """ 
     
     st.markdown(f"#### {title}")
+
+    if predictions is None or not isinstance(predictions, dict) or len(predictions) == 0:
+        st.info("Predictions are unavailable for this upload.")
+        return
 
     # loop through predictions 
     # label - pred name 
@@ -931,6 +985,27 @@ def predict_side_run(features_df):
     run_summary: average probability per cue across the run
     """
 
+    # 1. check dataframe exists
+    if features_df is None:
+        print("[predict_side_run] features_df is None.")
+        return None, None
+
+     # 2. check dataframe is not empty
+    if features_df.empty:
+        print("[predict_side_run] features_df is empty.")
+        return None, None
+
+     # 3. check required columns exist
+    missing_cols = [col for col in SIDE_FEATURE_COLS if col not in features_df.columns]
+    if missing_cols:
+        print(f"[predict_side_run] Missing required feature columns: {missing_cols}")
+        return None, None
+
+    # 4. check stride_id exists too
+    if "stride_id" not in features_df.columns:
+        print("[predict_side_run] Missing 'stride_id' column.")
+        return None, None
+        
     # select only the cols used during training  
     X = features_df[SIDE_FEATURE_COLS].copy()
 
@@ -1113,6 +1188,17 @@ def render_side_detail_section(
     # --------------------------------------------------------------------------------------------
     st.markdown("#### Run Summary")
 
+    is_valid_side_features, feature_error = validate_side_features(features_df)
+
+    if not is_valid_side_features:
+        st.info(
+            "Stride-level running metrics are unavailable because this upload does not appear "
+            "to contain a valid side-view running sequence."
+        )
+        if feature_error:
+            st.caption(f"Reason: {feature_error}")
+        return
+
     # compute summary metrics 
     summary_metrics = compute_side_summary_metrics(features_df, run_summary)
 
@@ -1248,18 +1334,18 @@ def render_side_detail_section(
 
         # target ranges for specific metrics 
         TARGET_RANGES = {
-            "foot_to_hip_distance_at_contact": (0.10, 0.18),
-            "foot_strike_ratio": (0.9, 1.1),
-            "braking_angle": (5, 15),
-            "shank_angle_at_contact": (5, 20),
-            "knee_angle_at_contact": (160, 175),
-            "knee_flexion_change_early_stance": (10, 20),
-            "mean_trunk_angle": (5, 12),
-            "max_trunk_angle": (8, 18),
-            "hip_vertical_range": (0.04, 0.08),
-            "vertical_velocity_peak": (0.4, 0.9),
-            "stride_time": (0.55, 0.75),
-            "cadence": (160, 185)
+           "foot_to_hip_distance_at_contact": (0.1, 0.384),
+            "foot_strike_ratio": (0.107, 0.253),
+            "braking_angle": (5.725, 13.49),
+            "shank_angle_at_contact": (3.451, 10.309),
+            "knee_angle_at_contact": (153.474, 164.389),
+            "knee_flexion_change_early_stance": (14.662, 32.661),
+            "mean_trunk_angle": (2.207, 5.241),
+            "max_trunk_angle": (4.635, 8.112),
+            "hip_vertical_range": (0.231, 0.333),
+            "vertical_velocity_peak": (3.034, 4.305),
+            "stride_time": (0.667, 0.8),
+            "cadence": (160.0, 185.0),
         }
 
         # if metric has a range 
@@ -1299,9 +1385,6 @@ def render_side_detail_section(
         col_left, col_right = st.columns(2)
 
         with col_left:
-            """
-            Comparison plot 
-            """
             st.markdown("#### Good vs Bad Stride Comparison")
 
             # if stride probs is not empty and not none and there is a flag col
@@ -1726,6 +1809,9 @@ if st.session_state.user is not None:
 st.sidebar.markdown("## Upload Videos")
 st.sidebar.markdown("Upload the video(s) available for this session.")
 st.sidebar.markdown(".mp4 is the only supported format.")
+st.sidebar.caption(
+    "Best results: one clearly visible human runner, side view, treadmill clip, .mp4 format."
+)
 
 # side video file upload widget 
 side_file = st.sidebar.file_uploader(
@@ -1847,24 +1933,36 @@ def render_view_tab(view_name, view_data):
 
     model_run_summary = None
     stride_probs_df = None
+    side_video_valid = False
+    side_video_error = None
 
     # if side view
     if view_name == "Side View":
-        features_df = view_data["features_df"].copy() # get features df 
-        model_features_df = features_df.copy() # copy of that df 
+        raw_features_df = view_data.get("features_df")
+        features_df = raw_features_df.copy() if isinstance(raw_features_df, pd.DataFrame) else None
+        model_features_df = features_df.copy() if isinstance(features_df, pd.DataFrame) else None
 
         # check if model is trained on foot_to_hip_distance_at_contact
         if (
-            "foot_to_hip_distance_at_contact" in model_features_df.columns
+            model_features_df is not None
+            and "foot_to_hip_distance_at_contact" in model_features_df.columns
             and "foot_to_hip_distance_at_contact" not in SIDE_FEATURE_COLS
         ):
             model_features_df = model_features_df.drop(
                 columns=["foot_to_hip_distance_at_contact"]
             ) # if not, drop the col
 
-        # get stride level probs and run summary 
-        stride_probs_df, model_run_summary = predict_side_run(model_features_df)
-        view_data["stride_probs_df"] = stride_probs_df# add stride level data to dict 
+        # validate extracted running features before prediction
+        side_video_valid, side_video_error = validate_side_features(model_features_df)
+
+        if side_video_valid:
+            # get stride level probs and run summary 
+            stride_probs_df, model_run_summary = predict_side_run(model_features_df)
+            view_data["stride_probs_df"] = stride_probs_df # add stride level data to dict
+        else:
+            stride_probs_df = None
+            model_run_summary = None
+            view_data["stride_probs_df"] = None
 
     # TOP SECTION
     # --------------------------------------------------------------------------------------------
@@ -1880,33 +1978,57 @@ def render_view_tab(view_name, view_data):
     with side_col:
         if view_name == "Side View": # if side view
             # show model predictions 
-            render_prediction_panel(model_run_summary, title="Model Predictions")
+            if side_video_valid:
+                render_prediction_panel(model_run_summary, title="Model Predictions")
+            else:
+                st.warning(
+                    "We couldn’t analyze this upload as a valid running video. "
+                    "Please upload a clear side-view treadmill running clip with one visible human runner."
+                )
+                if side_video_error:
+                    st.caption(f"Reason: {side_video_error}")
+                    
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            with st.expander("How are these predictions calculated?"):
+                st.markdown("""
+                The model analyzes your running form **stride by stride** using biomechanical features extracted from the video.
+            
+                For each stride, the model predicts a **probability** that a specific form cue is present.  
+                These probabilities are then **averaged across all detected strides in the run**.
+            
+                The value shown in the progress bars represents this **average probability across the entire run**.
+                """)
+
 
             st.markdown("#### Actions")
             # button to save
             if st.button("Save this run", key=f"save_{view_name}_{view_data['filename']}"):
                 try:
-                    # check if user has a run saved with this name 
-                    existing_filename = run_filename_exists(user_id, view_data["filename"])
-
-                    # if yes, error 
-                    if existing_filename:
-                        st.error("A saved run with this video filename already exists. Please rename the file before uploading or delete the previous run.")
+                    if not side_video_valid:
+                        st.error("This upload cannot be saved because no valid running strides were detected.")
                     else:
-                        # save run to database 
-                        save_run_to_supabase(
-                            user_id=user_id,
-                            title=Path(view_data["filename"]).stem,
-                            source_view="side",
-                            overlay_video_local_path=view_data["overlay_video"],
-                            features_df=view_data["features_df"],
-                            run_summary=model_run_summary,
-                            stride_probs_df=stride_probs_df,
-                            filename=view_data["filename"],
-                            n_frames=int(len(view_data["pose_df"])) if view_data.get("pose_df") is not None else None,
-                        )
-                        st.cache_data.clear() # clear cache data 
-                        st.success("Run saved successfully.")
+                        # check if user has a run saved with this name 
+                        existing_filename = run_filename_exists(user_id, view_data["filename"])
+
+                        # if yes, error 
+                        if existing_filename:
+                            st.error("A saved run with this video filename already exists. Please rename the file before uploading or delete the previous run.")
+                        else:
+                            # save run to database 
+                            save_run_to_supabase(
+                                user_id=user_id,
+                                title=Path(view_data["filename"]).stem,
+                                source_view="side",
+                                overlay_video_local_path=view_data["overlay_video"],
+                                features_df=view_data["features_df"],
+                                run_summary=model_run_summary,
+                                stride_probs_df=stride_probs_df,
+                                filename=view_data["filename"],
+                                n_frames=int(len(view_data["pose_df"])) if view_data.get("pose_df") is not None else None,
+                            )
+                            st.cache_data.clear() # clear cache data 
+                            st.success("Run saved successfully.")
             
                 except Exception as e:
                     st.error(f"Failed to save run: {e}")

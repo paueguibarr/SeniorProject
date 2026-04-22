@@ -174,30 +174,51 @@ def compute_overstride_features_at_contact(stride_df, side="LEFT"):
     }
 
 
+from scipy.signal import savgol_filter
+
 def compute_bounce_features(stride_df):
     """
-    Compute high bounce features for one stride 
+    Compute bounce-related features for one stride.
+    Returns values in torso-length units and torso-lengths/sec.
     """
-    # noramlize pelvis 
-    pelvis_y = (stride_df["pelvis_y"] / stride_df["torso_len"]).values
-    time = stride_df["time"].values # get time vals for each stride 
+    if stride_df is None or stride_df.empty or len(stride_df) < 5:
+        return {
+            "hip_vertical_range": np.nan,
+            "vertical_velocity_peak": np.nan,
+        }
 
-    # how much the body moves up and down
-    hip_vertical_range = np.max(pelvis_y) - np.min(pelvis_y)
+    torso_scale = stride_df["torso_len"].median()
+    if pd.isna(torso_scale) or torso_scale == 0:
+        return {
+            "hip_vertical_range": np.nan,
+            "vertical_velocity_peak": np.nan,
+        }
 
-    dy = np.diff(pelvis_y) # how much pelvis height changes between consecutive frames
-    dt = np.diff(time) # how much time passes between consecutive frames
+    pelvis_y = (stride_df["pelvis_y"] / torso_scale).to_numpy(dtype=float)
+    time = stride_df["time"].to_numpy(dtype=float)
 
-    if len(dt) == 0 or np.any(dt == 0):
+    # smooth pelvis trajectory a little to reduce landmark jitter
+    if len(pelvis_y) >= 7:
+        pelvis_y_smooth = savgol_filter(pelvis_y, window_length=7, polyorder=2)
+    elif len(pelvis_y) >= 5:
+        pelvis_y_smooth = savgol_filter(pelvis_y, window_length=5, polyorder=2)
+    else:
+        pelvis_y_smooth = pelvis_y
+
+    hip_vertical_range = np.max(pelvis_y_smooth) - np.min(pelvis_y_smooth)
+
+    dt = np.diff(time)
+    dy = np.diff(pelvis_y_smooth)
+
+    if len(dt) == 0 or np.any(dt <= 0):
         vertical_velocity_peak = np.nan
     else:
-        vertical_velocity = dy / dt # # frame-to-frame vertical speed of the pelvis
-        # abs val and find peak
+        vertical_velocity = dy / dt
         vertical_velocity_peak = np.max(np.abs(vertical_velocity))
 
     return {
-        "hip_vertical_range": hip_vertical_range,
-        "vertical_velocity_peak": vertical_velocity_peak,
+        "hip_vertical_range": float(hip_vertical_range),
+        "vertical_velocity_peak": float(vertical_velocity_peak),
     }
 
 
