@@ -1855,9 +1855,7 @@ st.markdown("""
 <div class="hero-box">
     <div class="hero-title">Stride Vision</div>
     <div class="hero-subtitle">
-        A running gait analysis dashboard built to transform 2D treadmill video into
-        interpretable biomechanical insights. Explore stride-level metrics, compare
-        movement patterns across views, and identify potential bad-form indicators.
+        An interactive dashboard that analyzes treadmill running videos to break down your stride into clear, easy-to-understand metrics. It helps identify common form issues like overstriding, excessive bounce, trunk lean, and low cadence.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1868,12 +1866,8 @@ st.markdown('<div class="section-title">Project Overview</div>', unsafe_allow_ht
 st.markdown("""
 This dashboard is designed to support the analysis of running form using extracted stride-level
 features. The goal is not only to flag potential issues, but also to present clear and interpretable
-metrics such as cadence, stride time, trunk angle, and vertical oscillation.
+metrics.
 
-Use the tabs below to explore results by camera view:
-- **Side View** for metrics like overstride, trunk lean, and vertical motion
-- **Front View** for symmetry and crossover-related patterns
-- **Rear View** for step width, toe-out, and arm asymmetry observations
 """)
 
 # LOAD MODELS 
