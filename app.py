@@ -663,7 +663,10 @@ def register_page():
 
     with center:
         with st.container():
-            st.markdown('<div class="auth-title">Register</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="auth-title" style="margin-top: 80px;">Register</div>',
+                unsafe_allow_html=True
+            )
             st.markdown(
                 '<div class="auth-subtext">Create your Stride Vision account</div>',
                 unsafe_allow_html=True
@@ -682,8 +685,8 @@ def register_page():
                     st.error("Please fill out all fields.")
                 elif password != confirm_password:
                     st.error("Passwords do not match.")
-                elif len(password) < 12:
-                    st.error("Password must be at least 12 characters.")
+                elif len(password) < 8:
+                    st.error("Password must be at least 8 characters.")
                 else:
                     try:
                         # call sign up function 
@@ -1334,7 +1337,7 @@ def render_side_detail_section(
 
         # target ranges for specific metrics 
         TARGET_RANGES = {
-           "foot_to_hip_distance_at_contact": (0.1, 0.384),
+           "foot_to_hip_distance_at_contact": (0, 0.384),
             "foot_strike_ratio": (0.107, 0.253),
             "braking_angle": (5.725, 13.49),
             "shank_angle_at_contact": (3.451, 10.309),
