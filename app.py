@@ -2293,8 +2293,7 @@ with history_tab: # in history tab
                 if pd.notna(baseline_val) and pd.notna(compare_val) and baseline_val != 0:
 
                     # calculate percentage change 
-                    change_pct = ((compare_val - baseline_val) / baseline_val) * 100
-        
+                    change_pct = (baseline_val - compare_val) * 100
                     # for form cues lower is better
                     # a decrese in % is imporvement 
                     # so reverse sign 
@@ -2304,9 +2303,9 @@ with history_tab: # in history tab
                         "high_bounce_prob",
                         "low_cadence_prob"
                     ]:
-                        display_change = -change_pct
-                    else:
                         display_change = change_pct
+                    else:
+                        display_change = -change_pct
 
                     # add to dict 
                     improvement_rows.append({
